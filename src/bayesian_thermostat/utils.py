@@ -9,19 +9,22 @@ def init_params(m_hat: jax.Array, L_hat: jax.Array) -> dict:
     L_raw = jnp.tril(L_hat, -1) + jnp.diag(jnp.log(jnp.expm1(jnp.diag(L_hat))))
     return {"m": m_hat, "L_raw": L_raw}
 
-def frobenius_norm(A: jax.Array) -> jax.Array:
+def frobenius_norm_squared(A: jax.Array) -> jax.Array:
     """Get Frobenius norm of a matrix A and L2 norm of vector A."""
     f_norm = jnp.sum(A ** 2)
     return f_norm
 
+def grad_norm(grads: dict) -> jax.Array:
+    return jnp.sqrt(sum(jnp.sum(g ** 2) for g in jax.tree_util.tree_leaves(grads)))
+
 def kl_div_chol(m_P: jax.Array, L_P: jax.Array, m_Q: jax.Array, L_Q: jax.Array):
     """Get the KL divergence between two gaussians where the covariance matrices are decomposed into Cholesky components."""
-    n = L_Q.size[1]
-    A = solve_triangular(L_P, L_Q, lower=True)
-    B = solve_triangular(L_P, (m_P - m_Q), lower=True)
+    n = L_Q.shape[-1]
+    A = solve_triangular(L_Q, L_P, lower=True)
+    B = solve_triangular(L_Q, (m_P - m_Q), lower=True)
     lndet_Q = 2 * jnp.sum(jnp.log(jnp.diag(L_Q)))
     lndet_P = 2 * jnp.sum(jnp.log(jnp.diag(L_P)))
-    D_kl = 0.5 * ((frobenius_norm(A) ** 2) + (frobenius_norm(B) ** 2) - n + lndet_Q - lndet_P)
+    D_kl = 0.5 * ((frobenius_norm_squared(A) ** 2) + (frobenius_norm_squared(B) ** 2) - n + lndet_Q - lndet_P)
     return D_kl
 
 def log_prob_chol(y: jax.Array, m_y: jax.Array, L_R: jax.Array):
@@ -29,26 +32,26 @@ def log_prob_chol(y: jax.Array, m_y: jax.Array, L_R: jax.Array):
     D = y.shape[0]
     z = solve_triangular(L_R, y - m_y, lower=True)
     lndet_R = 2 * jnp.sum(jnp.log(jnp.diag(L_R)))
-    return -0.5 * (D * jnp.log(2 * jnp.pi) + lndet_R + frobenius_norm(z))
+    return -0.5 * (D * jnp.log(2 * jnp.pi) + lndet_R + frobenius_norm_squared(z))
 
 def expected_log_lik(y: jax.Array, m_q: jax.Array, L_q: jax.Array, C: jax.Array, L_R: jax.Array) -> jax.Array:
     """Get the expected log probability of observation."""
     B = solve_triangular(L_R, C @ L_q, lower=True)
-    return log_prob_chol(y, C @ m_q, L_R) - 0.5 * frobenius_norm(B)
+    return log_prob_chol(y, C @ m_q, L_R) - 0.5 * frobenius_norm_squared(B)
 
 @jax.jit
-def vfe(y: jax.Array, params: dict, m_pred: jax.Array, L_pred: jax.Array, C: jax.Array, L_R: jax.Array):
+def vfe(params: dict, y: jax.Array, m_pred: jax.Array, L_pred: jax.Array, C: jax.Array, L_R: jax.Array):
     """VFE where L is the cholesky decomposition of P."""
     # Extract parameter terms
     m_prior = params["m"]
-    L_prior = params["L"]
+    L_prior = make_L(params["L"])
 
     # Divergence term    
     complexity = kl_div_chol(m_prior, L_prior, m_pred, L_pred)
 
     # Log prob calc
     accuracy = expected_log_lik(y, m_prior, L_prior, C, L_R)
-    return complexity + accuracy
+    return complexity - accuracy
 
 @jax.jit
 def efe():
