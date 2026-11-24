@@ -2,7 +2,7 @@ import jax
 jax.config.update("jax_enable_x64", True)
 import jax.numpy as jnp
 from jax import lax
-from utils import vfe, init_params, make_L, grad_norm
+from utils import vfe, init_params, make_L
 
 class AIfAgent():
     def __init__(self, belief_prior: dict, generative_model_params: dict):
@@ -48,7 +48,7 @@ class AIfAgent():
 
     def plan(self, m: jax.Array, P: jax.Array):
         """Replan based off current information."""
-        return u
+        return 
 
     def act(self, y: jax.Array):
         """Do all computation for the current timestep (inference and planning)."""

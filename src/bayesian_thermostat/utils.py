@@ -14,9 +14,6 @@ def frobenius_norm_squared(A: jax.Array) -> jax.Array:
     f_norm = jnp.sum(A ** 2)
     return f_norm
 
-def grad_norm(grads: dict) -> jax.Array:
-    return jnp.sqrt(sum(jnp.sum(g ** 2) for g in jax.tree_util.tree_leaves(grads)))
-
 def kl_div_chol(m_P: jax.Array, L_P: jax.Array, m_Q: jax.Array, L_Q: jax.Array):
     """Get the KL divergence between two gaussians where the covariance matrices are decomposed into Cholesky components."""
     n = L_Q.shape[-1]
