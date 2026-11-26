@@ -2,7 +2,7 @@ import jax
 jax.config.update("jax_enable_x64", True)
 import jax.numpy as jnp
 from jax import lax
-from utils import vfe, init_params, make_L
+from utils import vfe, init_params, make_L, efe
 
 class AIfAgent():
     def __init__(self, belief_prior: dict, generative_model_params: dict):
@@ -48,9 +48,14 @@ class AIfAgent():
 
     def plan(self, m: jax.Array, P: jax.Array, H: int, n: int):
         """Replan based off current information."""
-        u_bounds = [self.generative_model.u_lower, self.generative_model.u_upper]
-        
-        return 
+        kf = self.generative_model
+        self.key, k_sample, k_pick = jax.random.split(self.key, 3)
+        U = jax.random.uniform(k_sample, (n, H, kf.B.shape[1]), minval=kf.u_lower, maxval=kf.u_upper)
+        eval = jax.vmap(efe, (0, None, None, None, None, None))(U, m, P, kf, self.y_star, self.L_star)
+        log_w = - self.gamma * eval
+        w = jax.nn.softmax(log_w)
+        u = w @ U
+        return u # expectation of plans
 
     def rollout(self, m: jax.Array, P: jax.Array, u_seq: jax.Array):
         m_hist = [] ; P_hist = []
@@ -83,3 +88,6 @@ class KalmanFilter():
         m_next = self.A @ m + self.B @ u + self.c
         P_next = self.A @ P @ self.A.T + self.Q
         return m_next, P_next
+
+    def predict_obs(self, mu: jax.Array, P: jax.Array):
+        return self.C @ mu, self.C @ P @ self.C.T + self.R 

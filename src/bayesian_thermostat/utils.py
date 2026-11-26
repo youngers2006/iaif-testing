@@ -25,8 +25,10 @@ def kl_div_chol(m_P: jax.Array, L_P: jax.Array, m_Q: jax.Array, L_Q: jax.Array):
     D_kl = 0.5 * (frobenius_norm_squared(A) + frobenius_norm_squared(B) - n + lndet_Q - lndet_P)
     return D_kl
 
-def get_ambiguity():
-    return 0
+def get_ambiguity(L_R: jax.Array) -> jax.Array:
+    """Get ambiguity term."""
+    D = L_R.shape[-1]
+    return 0.5 * D * (1.0 + jnp.log(2 * jnp.pi)) + jnp.sum(jnp.log(jnp.diag(L_R)))
 
 def log_prob_chol(y: jax.Array, m_y: jax.Array, L_R: jax.Array):
     """Get the log prob of some observation y for a gaussian where the covariance matrix is decomposed into Cholesky components"""
@@ -61,12 +63,15 @@ def efe(u_seq: jax.Array, m: jax.Array, P: jax.Array, kf: KalmanFilter, y_star: 
         mu, P, efe = carry
         mu_, P_ = kf.predict(u, mu, P)
 
-        risk = kl_div_chol()
-        ambiguity = get_ambiguity()
+        mu_y, P_y = kf.predict_obs(mu_)
+        L_y = jnp.linalg.cholesky(P_y)
+
+        risk = kl_div_chol(mu_y, L_y, y_star, L_star)
+        ambiguity = get_ambiguity(kf.L_R)
         efe_t = risk + ambiguity
 
         efe = efe + efe_t
-        return (mu_, P_, efe)
+        return (mu_, P_, efe), efe_t
 
-    (mu_T, P_T, efe_T) = jax.lax.scan(scan_step, (mu, sigma, efe_0), u_seq)
+    (mu_T, P_T, efe_T), efe_per_timestep = jax.lax.scan(scan_step, (mu, sigma, efe_0), u_seq)
     return efe_T
