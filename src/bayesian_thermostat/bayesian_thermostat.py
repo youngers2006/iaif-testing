@@ -1,5 +1,6 @@
 import jax
 import jax.numpy as jnp
+import yaml
 from agent import AIfAgent
 
 class BayesianThermometer():
@@ -27,16 +28,30 @@ class BayesianThermometer():
         self.key, k = jax.random.split(self.key)
         return x + self.r_std * jax.random.normal(k, jnp.shape(x))
 
+def load_config(path) -> dict:
+    """Read a YAML file. Every list becomes a float64 jax array; scalars and strings stay Python values."""
+    with open(path) as f:
+        cfg = yaml.safe_load(f)
+
+    def convert(v):
+        if isinstance(v, dict):
+            return {k: convert(x) for k, x in v.items()}
+        if isinstance(v, list):
+            return jnp.asarray(v, dtype=jnp.float64)
+        return v
+
+    return convert(cfg)
+
 def run_sim(agentparamfilename: str, envparamfilename: str, seed: int = 0):
-    agent_params, belief_prior = ...
-    env_params, x_init, N = ...
+    agent_config = load_config(agentparamfilename)
+    env_config = load_config(envparamfilename)
 
-    agent = AIfAgent(belief_prior, agent_params)
-    env = BayesianThermometer(env_params, jax.random.key(seed))
+    agent = AIfAgent(agent_config["belief_prior"], agent_config["generative_model"], agent_config["planner"], seed=seed)
+    env = BayesianThermometer(env_config["plant"], jax.random.key(seed + 1))
 
-    x = x_init
-    x_hist = [x_init] ; y_hist = [] ; u_hist = []
-    for i in range(N):
+    x = env_config["x_init"]
+    x_hist = [x] ; y_hist = [] ; u_hist = []
+    for i in range(env_config["n_steps"]):
         y = env.observe(x)
         u = agent.act(y)
         x = env.step(x, u)

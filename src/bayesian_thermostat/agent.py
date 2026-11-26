@@ -58,9 +58,25 @@ class AIfAgent():
         """Replan based off current information."""
         kf = self.generative_model
         self.key, k_sample, k_pick = jax.random.split(self.key, 3)
+        return self._plan(
+            m, P, self.y_star, self.L_star, kf, self.gamma, n, H, k_sample
+        )
+
+    @jax.jit()
+    def _plan(
+            m: jax.Array, 
+            P: jax.Array, 
+            y_star: jax.Array, 
+            L_star: jax.Array, 
+            kf: "KalmanFilter", 
+            gamma: float, 
+            n: int, 
+            H: int, 
+            k_sample: jax.Array
+        ):
         U = jax.random.uniform(k_sample, (n, H, kf.B.shape[1]), minval=kf.u_lower, maxval=kf.u_upper)
-        G = jax.vmap(efe, (0, None, None, None, None, None))(U, m, P, kf, self.y_star, self.L_star)
-        log_w = jax.nn.log_softmax(- self.gamma * G)
+        G = jax.vmap(efe, (0, None, None, None, None, None))(U, m, P, kf, y_star, L_star)
+        log_w = jax.nn.log_softmax(- gamma * G)
         return PolicyPosterior(U, G, log_w)
 
     def act(self, y: jax.Array):
