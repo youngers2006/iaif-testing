@@ -1,8 +1,9 @@
 import jax
 import jax.numpy as jnp
 from jax.scipy.linalg import solve_triangular
+from agent import KalmanFilter
 
-def make_L(L_raw):
+def make_L(L_raw: jax.Array):
     return jnp.tril(L_raw, -1) + jnp.diag(jax.nn.softplus(jnp.diag(L_raw)))
 
 def init_params(m_hat: jax.Array, L_hat: jax.Array) -> dict:
@@ -21,8 +22,11 @@ def kl_div_chol(m_P: jax.Array, L_P: jax.Array, m_Q: jax.Array, L_Q: jax.Array):
     B = solve_triangular(L_Q, (m_P - m_Q), lower=True)
     lndet_Q = 2 * jnp.sum(jnp.log(jnp.diag(L_Q)))
     lndet_P = 2 * jnp.sum(jnp.log(jnp.diag(L_P)))
-    D_kl = 0.5 * ((frobenius_norm_squared(A) ** 2) + (frobenius_norm_squared(B) ** 2) - n + lndet_Q - lndet_P)
+    D_kl = 0.5 * (frobenius_norm_squared(A) + frobenius_norm_squared(B) - n + lndet_Q - lndet_P)
     return D_kl
+
+def get_ambiguity():
+    return 0
 
 def log_prob_chol(y: jax.Array, m_y: jax.Array, L_R: jax.Array):
     """Get the log prob of some observation y for a gaussian where the covariance matrix is decomposed into Cholesky components"""
@@ -41,7 +45,7 @@ def vfe(params: dict, y: jax.Array, m_pred: jax.Array, L_pred: jax.Array, C: jax
     """VFE where L is the cholesky decomposition of P."""
     # Extract parameter terms
     m_prior = params["m"]
-    L_prior = make_L(params["L"])
+    L_prior = make_L(params["L_raw"])
 
     # Divergence term    
     complexity = kl_div_chol(m_prior, L_prior, m_pred, L_pred)
@@ -50,6 +54,19 @@ def vfe(params: dict, y: jax.Array, m_pred: jax.Array, L_pred: jax.Array, C: jax
     accuracy = expected_log_lik(y, m_prior, L_prior, C, L_R)
     return complexity - accuracy
 
-@jax.jit
-def efe():
-    return 0
+@jax.jit()
+def efe(u_seq: jax.Array, m: jax.Array, P: jax.Array, kf: KalmanFilter, y_star: jax.Array, L_star: jax.Array):
+    mu = m ; sigma = P ; efe_0 = 0
+    def scan_step(carry, u):
+        mu, P, efe = carry
+        mu_, P_ = kf.predict(u, mu, P)
+
+        risk = kl_div_chol()
+        ambiguity = get_ambiguity()
+        efe_t = risk + ambiguity
+
+        efe = efe + efe_t
+        return (mu_, P_, efe)
+
+    (mu_T, P_T, efe_T) = jax.lax.scan(scan_step, (mu, sigma, efe_0), u_seq)
+    return efe_T

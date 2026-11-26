@@ -46,9 +46,17 @@ class AIfAgent():
         """Run inference to compute current belief."""
         return self._inference(y, m_prior, L_prior, C, L_R, kappa_m, kappa_L, tol, max_iter)
 
-    def plan(self, m: jax.Array, P: jax.Array):
+    def plan(self, m: jax.Array, P: jax.Array, H: int, n: int):
         """Replan based off current information."""
+        u_bounds = [self.generative_model.u_lower, self.generative_model.u_upper]
+        
         return 
+
+    def rollout(self, m: jax.Array, P: jax.Array, u_seq: jax.Array):
+        m_hist = [] ; P_hist = []
+        for i in range(u_seq[0]):
+            m, P = self.generative_model.predict(u_seq[i], m, P)
+        return
 
     def act(self, y: jax.Array):
         """Do all computation for the current timestep (inference and planning)."""
