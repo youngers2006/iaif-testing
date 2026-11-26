@@ -1,7 +1,6 @@
 import jax
 import jax.numpy as jnp
 from jax.scipy.linalg import solve_triangular
-from agent import KalmanFilter
 from typing import NamedTuple
 
 class PolicyPosterior(NamedTuple):
@@ -16,7 +15,7 @@ class PolicyPosterior(NamedTuple):
         return jnp.exp(-jax.nn.logsumexp(2 * self.log_w))
 
     def expected_plan(self):
-        return self.weights() @ self.U
+        return jnp.einsum("n,nhu->hu", self.weights(), self.U)
 
 def make_L(L_raw: jax.Array):
     return jnp.tril(L_raw, -1) + jnp.diag(jax.nn.softplus(jnp.diag(L_raw)))
@@ -72,13 +71,13 @@ def vfe(params: dict, y: jax.Array, m_pred: jax.Array, L_pred: jax.Array, C: jax
     return complexity - accuracy
 
 @jax.jit()
-def efe(u_seq: jax.Array, m: jax.Array, P: jax.Array, kf: KalmanFilter, y_star: jax.Array, L_star: jax.Array):
+def efe(u_seq: jax.Array, m: jax.Array, P: jax.Array, kf: "KalmanFilter", y_star: jax.Array, L_star: jax.Array):
     mu = m ; sigma = P ; efe_0 = 0
     def scan_step(carry, u):
         mu, P, efe = carry
         mu_, P_ = kf.predict(u, mu, P)
 
-        mu_y, P_y = kf.predict_obs(mu_)
+        mu_y, P_y = kf.predict_obs(mu_, P_)
         L_y = jnp.linalg.cholesky(P_y)
 
         risk = kl_div_chol(mu_y, L_y, y_star, L_star)

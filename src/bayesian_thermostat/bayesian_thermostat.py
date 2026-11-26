@@ -46,15 +46,20 @@ def run_sim(agentparamfilename: str, envparamfilename: str, seed: int = 0):
     agent_config = load_config(agentparamfilename)
     env_config = load_config(envparamfilename)
 
-    agent = AIfAgent(agent_config["belief_prior"], agent_config["generative_model"], agent_config["planner"], seed=seed)
+    agent = AIfAgent(
+        agent_config["belief_prior"], agent_config["generative_model"], agent_config["planner"], seed=seed
+    )
     env = BayesianThermometer(env_config["plant"], jax.random.key(seed + 1))
 
     x = env_config["x_init"]
     x_hist = [x] ; y_hist = [] ; u_hist = []
     for i in range(env_config["n_steps"]):
         y = env.observe(x)
-        u = agent.act(y)
+        u, info = agent.act(y)
         x = env.step(x, u)
 
         x_hist.append(x) ; y_hist.append(y) ; u_hist.append(u)
     return x_hist, y_hist, u_hist
+
+if __name__ == "__main__":
+    x, y, u = run_sim(agentparamfilename="agent.yaml", envparamfilename="env.yaml", seed=0)

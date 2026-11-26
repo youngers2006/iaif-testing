@@ -3,10 +3,11 @@ jax.config.update("jax_enable_x64", True)
 import jax.numpy as jnp
 from jax import lax
 from utils import vfe, init_params, make_L, efe, PolicyPosterior
+from typing import NamedTuple
 
 class AIfAgent():
     def __init__(self, belief_prior: dict, generative_model_params: dict, planner_params: dict, seed: int = 0):
-        self.generative_model = KalmanFilter(generative_model_params)
+        self.generative_model = KalmanFilter.from_params(generative_model_params)
         self.state_belief = belief_prior
         self.u_prev = jnp.zeros(self.generative_model.B.shape[1])
 
@@ -62,7 +63,8 @@ class AIfAgent():
             m, P, self.y_star, self.L_star, kf, self.gamma, n, H, k_sample
         )
 
-    @jax.jit()
+    @staticmethod
+    @jax.jit(static_argnames=("n", "H"))
     def _plan(
             m: jax.Array, 
             P: jax.Array, 
@@ -108,11 +110,22 @@ class AIfAgent():
         info = {**info, "ess": q_policy.ess()}
         return u, info
 
-class KalmanFilter():
-    def __init__(self, generative_model_params: dict):
-        for (k, v) in generative_model_params.items():
-            setattr(self, k, v)
-        self.L_R = jnp.linalg.cholesky(self.R)
+class KalmanFilter(NamedTuple):
+    """Linear-Gaussian generative model. A NamedTuple is already a JAX pytree, so it can be passed into jit/vmap."""
+    A: jax.Array
+    B: jax.Array
+    c: jax.Array
+    Q: jax.Array
+    C: jax.Array
+    R: jax.Array
+    L_R: jax.Array
+    u_lower: jax.Array
+    u_upper: jax.Array
+
+    @classmethod
+    def from_params(cls, params: dict):
+        return cls(A=params["A"], B=params["B"], c=params["c"], Q=params["Q"], C=params["C"], R=params["R"],
+                   L_R=jnp.linalg.cholesky(params["R"]), u_lower=params["u_lower"], u_upper=params["u_upper"])
 
     def predict(self, u: jax.Array, m: jax.Array, P: jax.Array):
         m_next = self.A @ m + self.B @ u + self.c
@@ -120,4 +133,4 @@ class KalmanFilter():
         return m_next, P_next
 
     def predict_obs(self, mu: jax.Array, P: jax.Array):
-        return self.C @ mu, self.C @ P @ self.C.T + self.R 
+        return self.C @ mu, self.C @ P @ self.C.T + self.R
