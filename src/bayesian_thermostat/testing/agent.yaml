@@ -1,0 +1,31 @@
+# Agent: generative model, initial belief and planner settings for the 1-D thermostat.
+# Matrices must be nested lists ([[...]]) and vectors plain lists ([...]); the loader turns every list into a float64 array.
+# Write small numbers with a decimal point (1.0e-6, not 1e-6): PyYAML reads 1e-6 as a string.
+
+generative_model:          # x' = A x + B u + c + w,   y = C x + v,   w ~ N(0, Q),  v ~ N(0, R)
+  A: [[0.9]]               # alpha
+  B: [[0.5]]               # beta
+  c: [1.5]                 # (1 - alpha) * T_amb
+  Q: [[0.04]]              # process-noise covariance (q_std^2)
+  C: [[1.0]]
+  R: [[0.25]]              # thermometer-noise covariance (r_std^2)
+  u_lower: [0.0]
+  u_upper: [8.0]
+
+belief_prior:              # q(x) before the first observation
+  m: [18.0]
+  P: [[4.0]]
+
+planner:
+  H: 3                     # horizon
+  n: 10000                 # number of sampled policies
+  gamma: 1.0               # precision over policies
+  y_star: [21.0]           # preferred thermometer reading
+  Sigma_star: [[0.25]]     # preference covariance
+  action_rule: mean        # mean | sample | map  (also picks the committed plan: expected plan | sampled plan | best plan)
+  replan_mode: every_step  # every_step (replan at each step) | efe_trigger (IAIF: keep the plan until the EFE Error Trigger fires)
+
+metacognition:             # lifetime predictors for each selected plan; used with replan_mode: efe_trigger, logged only
+  methods: [gaussian, mc]  # gaussian (metabelief + UT + survivor conditioning) | mc (posterior-predictive Monte Carlo reference)
+  mc_samples: 20000        # sampled future histories per plan for the mc reference
+  eps_G: 1.0e-9            # below this EFE standard deviation the trigger is treated as deterministic
