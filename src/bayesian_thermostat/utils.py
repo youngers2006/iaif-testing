@@ -2,6 +2,21 @@ import jax
 import jax.numpy as jnp
 from jax.scipy.linalg import solve_triangular
 from agent import KalmanFilter
+from typing import NamedTuple
+
+class PolicyPosterior(NamedTuple):
+    U: jax.Array
+    G: jax.Array
+    log_w: jax.Array
+
+    def weights(self):
+        return jnp.exp(self.log_w)
+
+    def ess(self):
+        return jnp.exp(-jax.nn.logsumexp(2 * self.log_w))
+
+    def expected_plan(self):
+        return self.weights() @ self.U
 
 def make_L(L_raw: jax.Array):
     return jnp.tril(L_raw, -1) + jnp.diag(jax.nn.softplus(jnp.diag(L_raw)))

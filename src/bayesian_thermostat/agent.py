@@ -2,13 +2,21 @@ import jax
 jax.config.update("jax_enable_x64", True)
 import jax.numpy as jnp
 from jax import lax
-from utils import vfe, init_params, make_L, efe
+from utils import vfe, init_params, make_L, efe, PolicyPosterior
 
 class AIfAgent():
-    def __init__(self, belief_prior: dict, generative_model_params: dict):
+    def __init__(self, belief_prior: dict, generative_model_params: dict, planner_params: dict, seed: int = 0):
         self.generative_model = KalmanFilter(generative_model_params)
         self.state_belief = belief_prior
         self.u_prev = jnp.zeros(self.generative_model.B.shape[1])
+
+        self.H = planner_params["H"]
+        self.n = planner_params["n"]
+        self.gamma = planner_params["gamma"]
+        self.y_star = planner_params["y_star"]
+        self.L_star = jnp.linalg.cholesky(planner_params["Sigma_star"])
+        self.action_rule = planner_params.get("action_rule", "mean")
+        self.key = jax.random.key(seed)
 
     @staticmethod
     @jax.jit()
@@ -51,17 +59,9 @@ class AIfAgent():
         kf = self.generative_model
         self.key, k_sample, k_pick = jax.random.split(self.key, 3)
         U = jax.random.uniform(k_sample, (n, H, kf.B.shape[1]), minval=kf.u_lower, maxval=kf.u_upper)
-        eval = jax.vmap(efe, (0, None, None, None, None, None))(U, m, P, kf, self.y_star, self.L_star)
-        log_w = - self.gamma * eval
-        w = jax.nn.softmax(log_w)
-        u = w @ U
-        return u # expectation of plans
-
-    def rollout(self, m: jax.Array, P: jax.Array, u_seq: jax.Array):
-        m_hist = [] ; P_hist = []
-        for i in range(u_seq[0]):
-            m, P = self.generative_model.predict(u_seq[i], m, P)
-        return
+        G = jax.vmap(efe, (0, None, None, None, None, None))(U, m, P, kf, self.y_star, self.L_star)
+        log_w = jax.nn.log_softmax(- self.gamma * G)
+        return PolicyPosterior(U, G, log_w)
 
     def act(self, y: jax.Array):
         """Do all computation for the current timestep (inference and planning)."""
@@ -74,8 +74,22 @@ class AIfAgent():
         P = L @ L.T
 
         self.state_belief = {"m": m, "P": P}
-        u = self.plan(m, P)
+
+        q_policy = self.plan(m, P, self.H, self.n)
+
+        if self.action_rule == "mean":
+            u = q_policy.weights() @ q_policy.U[:, 0, :]
+        elif self.action_rule == "sample":
+            self.key, k = jax.random.split(self.key)
+            u = q_policy.U[jax.random.categorical(k, q_policy.log_w), 0, :]
+        elif self.action_rule == "map":
+            u = q_policy.U[jnp.argmax(q_policy.log_w), 0, :]
+        else:
+            raise ValueError(f"unknown action_rule {self.action_rule!r}")
+
         self.u_prev = u
+        self.q_policy = q_policy
+        info = {**info, "ess": q_policy.ess()}
         return u, info
 
 class KalmanFilter():
